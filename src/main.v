@@ -17,19 +17,19 @@ fn main() {
 			cli.Command{
 				name:    'peer'
 				execute: fn (cmd cli.Command) ! {
-					peer()!
+					peer() or { panic(err) }
 				}
 			},
 			cli.Command{
 				name:    'validator'
 				execute: fn (cmd cli.Command) ! {
-					validator()!
+					validator() or { panic(err) }
 				}
 			},
 			cli.Command{
 				name:    'miner'
 				execute: fn (cmd cli.Command) ! {
-					miner()!
+					miner() or { panic(err) }
 				}
 			},
 		]

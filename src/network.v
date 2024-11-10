@@ -48,7 +48,9 @@ pub mut:
 }
 
 fn (mp MePeer) sign_packet(p []u8) ![]u8 {
-	return mp.skey.sign(p)!
+	mut sig := mp.skey.sign(p)!
+	sig << p
+	return sig
 }
 
 fn (mut mp MePeer) send_packet(to Peer, @type u8, d []u8) ! {
@@ -65,7 +67,11 @@ fn (mut mp MePeer) request_active_peers(who_to_ask Peer) ! {
 }
 
 fn (mut mp MePeer) check_pckt(sender Peer, p []u8) ! {
-	return
+	// i guess we should check
+
+	if ed25519.verify(sender.pkey, p[64..], p[..64])! == false {
+		return error('Aw.. Not valid!')
+	}
 }
 
 pub fn (mut mp MePeer) add_new_block(mut block Block, add bool) ! {
@@ -155,7 +161,7 @@ pub fn (mut mp MePeer) request_last_block() !string {
 		}
 		p_buf = p_buf[0..i_len].clone()
 
-		mp.check_pckt(i, p_buf[64..i_len].clone())!
+		mp.check_pckt(i, p_buf.clone())!
 
 		// Lets think about it!
 
@@ -208,7 +214,7 @@ pub fn (mut mp MePeer) request_genesis_block() !string {
 		}
 		p_buf = p_buf[0..i_len].clone()
 
-		mp.check_pckt(i, p_buf[64..i_len].clone())!
+		mp.check_pckt(i, p_buf.clone())!
 
 		// Lets think about it!
 
@@ -261,7 +267,7 @@ pub fn (mut mp MePeer) request_difficulty() !int {
 		}
 		p_buf = p_buf[0..i_len].clone()
 
-		mp.check_pckt(i, p_buf[64..i_len].clone())!
+		mp.check_pckt(i, p_buf.clone())!
 
 		// Lets think about it!
 
@@ -309,9 +315,7 @@ fn (mut mp MePeer) connect_to_peer(mut peer Peer) ! {
 	binary.little_endian_put_u64_end(mut p_buf, u64(time.now().as_utc().unix_milli()))
 	p_buf << u8(0x00) // Handshake = 0x00
 	p_buf << u8(mp.@type) - 1
-	pkey := mp.skey.public_key()
-	p_buf << []u8{len: 32}
-	unsafe { C.memcpy(&p_buf[p_buf.len - 32], &pkey[0], pkey.len) }
+	p_buf << mp.skey.public_key()
 
 	mp.conn.write_to(peer.paddr, p_buf)!
 	mut i_len := 0
@@ -340,8 +344,7 @@ fn (mut mp MePeer) connect_to_peer(mut peer Peer) ! {
 
 	assert key.len == 32
 
-	peer.pkey = ed25519.PublicKey{}
-	unsafe { C.memcpy(&peer.pkey[0], &key[0], 32) }
+	peer.pkey = ed25519.PublicKey(key)
 
 	peer.waddr = base64.encode(blake3.sum256(key))
 	peer.@type = typeofpeer
@@ -379,6 +382,7 @@ fn (mp MePeer) get_peer(addr net.Addr) ?Peer {
 }
 
 fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
+	println(data.len)
 	pid := data[72]
 	mut p_buf := data.clone()
 	if pid == 0x00 { // Handshake so we dont need to check sig
@@ -397,9 +401,7 @@ fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
 
 		peer.@type = typeofpeer
 		peer.paddr = from
-		peer.pkey = ed25519.PublicKey{}
-
-		unsafe { C.memcpy(&peer.pkey[0], &key[0], 32) }
+		peer.pkey = ed25519.PublicKey(key)
 
 		peer.waddr = base64.encode(blake3.sum256(key))
 
@@ -410,11 +412,9 @@ fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
 		s_buf << []u8{len: 8}
 		binary.little_endian_put_u64_end(mut s_buf, u64(time.now().as_utc().unix_milli()))
 		s_buf << u8(0x01) // Handshake = 0x00
-
-		pkey := mp.skey.public_key()
 		s_buf << u8(mp.@type)
-		s_buf << []u8{len: 32}
-		unsafe { C.memcpy(&s_buf[p_buf.len - 32], &pkey[0], pkey.len) }
+		s_buf << mp.skey.public_key()
+		// unsafe { C.memcpy(&s_buf[p_buf.len - 32], &pkey[0], pkey.len) }
 
 		mp.conn.write_to(from, s_buf)!
 	} else if pid == 0x09 {

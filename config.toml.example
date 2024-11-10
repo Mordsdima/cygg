@@ -1,0 +1,6 @@
+[peer]
+port = 10094
+bc_path = "bc.db"
+
+[bootstrap]
+peers = ["[201:b292:d3a8:db94:76f8:ae54:b796:bc8f]:10093"]
