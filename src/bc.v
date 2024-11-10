@@ -44,8 +44,8 @@ pub fn (mut b Block) mine(diff int) {
 	b.tooktomine = (time.now() - s).nanoseconds()
 }
 
-pub fn (b Block) validate() bool {
-	if b.get_hash() != b.hash && !b.hash.starts_with('0'.repeat((*bc).diff)) {
+pub fn (b Block) validate(diff int) bool {
+	if b.get_hash() != b.hash && !b.hash.starts_with('0'.repeat(diff)) {
 		println('Something wrong with block.')
 		return false
 	}
@@ -144,5 +144,4 @@ pub fn (mut bc Blockchain) get_between(a string, b string) []Block {
 	return bc.chain[ai..bi + 1]
 }
 
-pub const bc = &Blockchain{}
 pub const can_be_mined = true

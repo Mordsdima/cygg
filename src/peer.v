@@ -39,12 +39,14 @@ fn peer() ! {
 		create table Block
 	}!
 
-	(*bc).load(mut db) or { panic(err) }
+	mut bc := Blockchain{}
+	bc.load(mut db) or { panic(err) }
 
 	mut mepeer := MePeer{
 		skey: private
 		port: u16(cnf.value('peer.port').int())
 		db:   db
+		bc:   bc
 	}
 
 	mepeer.init()
@@ -55,8 +57,8 @@ fn peer() ! {
 
 	if cnf.value('bootstrap.peers').array().len == 0 && bc.chain.len == 0 {
 		// new network?
-		(*bc).diff = 1 // A simple difficulty! Right?
-		(*bc).create_genesis(mut db) or { panic(err) }
+		bc.diff = 1 // A simple difficulty! Right?
+		bc.create_genesis(mut db) or { panic(err) }
 	}
 
 	mepeer.sync_peers() or { panic(err) }
@@ -70,7 +72,7 @@ fn peer() ! {
 			genesis := mepeer.request_genesis_block()!
 			last := mepeer.request_last_block()!
 			if genesis == bc.chain[0].hash
-				&& last == ((*bc).get_last() or { panic('Блять') }).hash {
+				&& last == (bc.get_last() or { panic('Блять') }).hash {
 				println('Blockchain is up-to date!')
 			}
 		} else {

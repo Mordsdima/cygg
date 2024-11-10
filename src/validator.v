@@ -41,13 +41,15 @@ fn validator() ! {
 		create table Block
 	}!
 
-	(*bc).load(mut db) or { panic(err) }
+	mut bc := Blockchain{}
+	bc.load(mut db) or { panic(err) }
 
 	mut mepeer := MePeer{
 		skey:  private
 		port:  u16(cnf.value('peer.port').int())
 		db:    db
 		@type: .validator
+		bc:    bc
 	}
 
 	mepeer.init()
@@ -58,8 +60,8 @@ fn validator() ! {
 
 	if cnf.value('bootstrap.peers').array().len == 0 && bc.chain.len == 0 {
 		// own network?
-		(*bc).diff = 1 // A simple difficulty! Right?
-		(*bc).create_genesis(mut db) or { panic(err) }
+		bc.diff = 1 // A simple difficulty! Right?
+		bc.create_genesis(mut db) or { panic(err) }
 	}
 
 	mepeer.sync_peers() or { panic(err) }
@@ -72,9 +74,8 @@ fn validator() ! {
 		if bc.chain.len != 0 {
 			genesis := mepeer.request_genesis_block()!
 			last := mepeer.request_last_block()!
-			if genesis == (*bc).chain[0].hash && last == ((*bc).get_last() or {
-				panic('Блять')
-			}).hash {
+			if genesis == bc.chain[0].hash
+				&& last == (bc.get_last() or { panic('Блять') }).hash {
 				println('Blockchain is up-to date!')
 			}
 		} else {

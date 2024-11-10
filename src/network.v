@@ -45,6 +45,7 @@ pub mut:
 	apprs map[string]int
 	denys map[string]int
 	@type PeerType = .peer
+	bc    Blockchain
 }
 
 fn (mp MePeer) sign_packet(p []u8) ![]u8 {
@@ -78,14 +79,14 @@ pub fn (mut mp MePeer) add_new_block(mut block Block, add bool) ! {
 	// Thats a biggg process so..
 
 	// First of all lets validate the block.
-	if !block.validate() {
+	if !block.validate(mp.bc.diff) {
 		println('invalid')
 		return
 	}
 
 	// Also, if we alone we should just add this block to blockchain
 	if (mp.peers.len == 0 && add) || (mp.peers.filter(it.@type == .validator).len == 0 && add) {
-		(*bc).add_block(mut mp.db, mut block, true)!
+		mp.bc.add_block(mut mp.db, mut block, true)!
 		return
 	}
 
@@ -132,7 +133,7 @@ pub fn (mut mp MePeer) add_new_block(mut block Block, add bool) ! {
 			mp.send_packet(i, 0x0e, zstd.compress(json2.encode(block).bytes())!)!
 		}
 		if add {
-			(*bc).add_block(mut mp.db, mut block, true)!
+			mp.bc.add_block(mut mp.db, mut block, true)!
 		}
 	} else {
 		println('Uh-oh! Invalid block!')
@@ -382,7 +383,6 @@ fn (mp MePeer) get_peer(addr net.Addr) ?Peer {
 }
 
 fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
-	println(data.len)
 	pid := data[72]
 	mut p_buf := data.clone()
 	if pid == 0x00 { // Handshake so we dont need to check sig
@@ -405,6 +405,8 @@ fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
 
 		peer.waddr = base64.encode(blake3.sum256(key))
 
+		println('${peer.waddr} -> ${peer.paddr.str()}')
+
 		mp.peers << peer
 
 		mut s_buf := []u8{cap: 64 + 8 + 1 + 1536} // 64 of sig, 1 of packet type and 512 of useful data
@@ -420,29 +422,29 @@ fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
 	} else if pid == 0x09 {
 		p_buf.delete_many(0, 64 + 8 + 1)
 		s := (unsafe { tos(&p_buf[0], p_buf.len) }).split(';')
-		for i in (*bc).get_between(s[0], s[1]) {
+		for i in mp.bc.get_between(s[0], s[1]) {
 			mp.send_packet(mp.get_peer(from) or { return error('Failed to handle block request!') },
 				0x0a, zstd.compress(json2.encode(i).bytes())!)!
 		}
 	} else if pid == 0x04 {
 		mp.send_packet(mp.get_peer(from) or {
 			return error('Failed to handle genesis block request!')
-		}, 0x05, (*bc).chain[0].hash.bytes())!
+		}, 0x05, mp.bc.chain[0].hash.bytes())!
 	} else if pid == 0x06 {
 		mp.send_packet(mp.get_peer(from) or { return error('Failed to handle last block request!') },
-			0x07, ((*bc).get_last() or { return }).hash.bytes())!
+			0x07, (mp.bc.get_last() or { return }).hash.bytes())!
 	} else if pid == 0x0a {
 		p_buf.delete_many(0, 64 + 8 + 1)
 		d_buf := zstd.decompress(p_buf)!
 		mut b := json2.decode[Block](unsafe { tos(&d_buf[0], d_buf.len) })!
-		(*bc).add_block(mut mp.db, mut b, true)!
+		mp.bc.add_block(mut mp.db, mut b, true)!
 	} else if pid == 0x0b {
 		p_buf.delete_many(0, 64 + 8 + 1)
 		d_buf := zstd.decompress(p_buf)!
 		st := unsafe { tos(&d_buf[0], d_buf.len) }
 		b := json2.decode[Block](st)!
 		// So.. Lets validate block
-		if b.validate() {
+		if b.validate(mp.bc.diff) {
 			mp.apprs[b.hash] = 1
 			mp.denys[b.hash] = 0
 
@@ -476,13 +478,13 @@ fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
 		if b.hash in mp.apprs
 			&& (mp.apprs[b.hash] / (mp.peers.filter(it.@type == .validator).len + 1) * 100) >= 95 {
 			// println('Valid block yay!!!!!!!!!!!!!!!')
-			(*bc).add_block(mut mp.db, mut b, true)!
+			mp.bc.add_block(mut mp.db, mut b, true)!
 		} else {
 			panic('Back into the future.')
 		}
 	} else if pid == 0x0f {
 		mp.send_packet(mp.get_peer(from) or { return error('Failed to handle request diff!') },
-			0x10, binary.little_endian_get_u64(u64((*bc).diff)))!
+			0x10, binary.little_endian_get_u64(u64(mp.bc.diff)))!
 	} else if pid == 0xfe {
 		// Ping!
 		mp.send_packet(mp.get_peer(from) or { return error('Failed to handle ping!') },
