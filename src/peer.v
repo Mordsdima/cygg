@@ -82,7 +82,9 @@ fn peer() ! {
 		}
 	}
 
-	println('Done! Running peer!')
+	// While we can recalc balances, its not required as this is purely validator-side property
+
+	println('Finally running peer!')
 
 	for {
 		mepeer.update() or { panic(err) }

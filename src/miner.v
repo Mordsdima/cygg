@@ -50,8 +50,7 @@ fn miner() ! {
 		panic('Cant work without bootstrap peers')
 	}
 
-	p := []u8{len: 32}
-	unsafe { C.memcpy(&p[0], &private.public_key()[0], p.len) }
+	p := private.public_key()
 	waddr := base64.encode(p)
 
 	for {
@@ -70,10 +69,11 @@ fn miner() ! {
 			generated_by: waddr
 			version:      0
 		}
+		block.signit(private)!
 		println('Mining block with difficulty ${d}')
 		block.mine(d)
 		println('Successfully mined!')
-		mepeer.add_new_block(mut block, false)!
+		mepeer.add_new_block(mut block, false, Peer{ pkey: p })!
 		// mepeer.update() or { panic(err) }
 	}
 }

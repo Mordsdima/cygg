@@ -38,14 +38,15 @@ pub:
 	port u16
 pub mut:
 	// dht   map[u64][]string
-	peers []Peer
-	skey  ed25519.PrivateKey
-	conn  net.UdpConn
-	db    sqlite.DB
-	apprs map[string]int
-	denys map[string]int
-	@type PeerType = .peer
-	bc    Blockchain
+	peers    []Peer
+	skey     ed25519.PrivateKey
+	conn     net.UdpConn
+	db       sqlite.DB
+	apprs    map[string]int
+	denys    map[string]int
+	@type    PeerType = .peer
+	bc       Blockchain
+	balances map[string]f64
 }
 
 fn (mp MePeer) sign_packet(p []u8) ![]u8 {
@@ -75,14 +76,11 @@ fn (mut mp MePeer) check_pckt(sender Peer, p []u8) ! {
 	}
 }
 
-pub fn (mut mp MePeer) add_new_block(mut block Block, add bool) ! {
+pub fn (mut mp MePeer) add_new_block(mut block Block, add bool, p Peer) ! {
 	// Thats a biggg process so..
 
 	// First of all lets validate the block.
-	if !block.validate(mp.bc.diff) {
-		println('invalid')
-		return
-	}
+	block.validate(mp.bc.diff, p) or { return error('Not valid block.') }
 
 	// Also, if we alone we should just add this block to blockchain
 	if (mp.peers.len == 0 && add) || (mp.peers.filter(it.@type == .validator).len == 0 && add) {
@@ -416,7 +414,6 @@ fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
 		s_buf << u8(0x01) // Handshake = 0x00
 		s_buf << u8(mp.@type)
 		s_buf << mp.skey.public_key()
-		// unsafe { C.memcpy(&s_buf[p_buf.len - 32], &pkey[0], pkey.len) }
 
 		mp.conn.write_to(from, s_buf)!
 	} else if pid == 0x09 {
@@ -444,14 +441,15 @@ fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
 		st := unsafe { tos(&d_buf[0], d_buf.len) }
 		b := json2.decode[Block](st)!
 		// So.. Lets validate block
-		if b.validate(mp.bc.diff) {
-			mp.apprs[b.hash] = 1
-			mp.denys[b.hash] = 0
+		b.validate(mp.bc.diff, mp.get_peer(from) or {
+			panic('Did not found peer, (how its even happened?)')
+		})!
+		mp.apprs[b.hash] = 1
+		mp.denys[b.hash] = 0
 
-			for i in mp.peers {
-				if i.@type == .validator || i.paddr.str() == from.str() {
-					mp.send_packet(i, 0x0c, b.hash.bytes())!
-				}
+		for i in mp.peers {
+			if i.@type == .validator || i.paddr.str() == from.str() {
+				mp.send_packet(i, 0x0c, b.hash.bytes())!
 			}
 		}
 	} else if pid == 0x0c {
@@ -493,7 +491,7 @@ fn (mut mp MePeer) process_packet(from net.Addr, data []u8) ! {
 	} else if pid == 0xff {
 		println('Pong!')
 	} else {
-		panic('No valid packet inputted')
+		panic('No valid packet received')
 	}
 }
 
@@ -507,6 +505,10 @@ pub fn (mut mp MePeer) update() ! {
 	mut p_buf := []u8{len: 64 + 8 + 1 + 1536} // 64 of sig, 1 of packet type and 1536 of useful data
 
 	howmany, ip := mp.conn.read(mut p_buf) or { panic(err) }
+
+	if mp.get_peer(ip) != none {
+		mp.check_pckt(mp.get_peer(ip) or { panic(err) }, p_buf[0..howmany].clone())!
+	}
 
 	if howmany > 0 {
 		mp.process_packet(ip, p_buf[0..howmany].clone())!

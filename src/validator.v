@@ -85,7 +85,14 @@ fn validator() ! {
 		}
 	}
 
-	println('Done! Running validator!')
+	println('Recalculating balances.. Please wait')
+	mut turnover := f64(0)
+	turnover, mepeer.balances = mepeer.bc.recalc_balances()!
+
+	println('Total turnover of cryptocurrency is ' + turnover.str() +
+		"!, Thats maybe a large number! You'll anyway have smaller (or no) :c")
+
+	println('Finally running validator!')
 
 	for {
 		mepeer.update() or { panic(err) }
